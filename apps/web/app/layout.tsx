@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ClientProviders } from "../src/shared/providers/client-providers";
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -13,7 +14,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ClientProviders>
+          <SessionGate>{children}</SessionGate>
+        </ClientProviders>
+      </body>
     </html>
   );
+}
+
+function SessionGate({ children }: { children: React.ReactNode }) {
+  // Minimal gate — no redirect guard; just a simple example placeholder
+  // This can later be replaced by feature-level protection
+  return <>{children}</>;
 }
