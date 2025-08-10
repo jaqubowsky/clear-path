@@ -7,19 +7,45 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["apps/**/*.tsx", "apps/**/*.ts", "packages/**/*.tsx", "packages/**/*.ts"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/.turbo",
+      "!**/build",
+      "!**/build-docker",
+      "!**/out",
+      "!**/*.gen.ts"
+    ]
   },
   "formatter": {
     "enabled": true,
-    "lineWidth": 120,
-    "indentStyle": "space",
-    "indentWidth": 2
+    "indentStyle": "space"
   },
   "linter": {
     "enabled": true,
     "rules": {
       "recommended": true,
-      "a11y": "info"
+      "style": {
+        "noNonNullAssertion": "off",
+        "noParameterAssign": "error",
+        "useAsConstAssertion": "error",
+        "useDefaultParameterLast": "error",
+        "useEnumInitializers": "error",
+        "useSelfClosingElements": "error",
+        "useSingleVarDeclarator": "error",
+        "noUnusedTemplateLiteral": "error",
+        "useNumberNamespace": "error",
+        "noInferrableTypes": "error",
+        "noUselessElse": "error",
+        "noDescendingSpecificity": "off"
+      },
+      "correctness": {
+        "noUnusedImports": {
+          "level": "error",
+          "fix": "safe"
+        }
+      }
     }
   },
   "javascript": {
