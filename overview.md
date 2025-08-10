@@ -49,8 +49,8 @@ The primary goal of ClearPath is to provide a lightweight, easy-to-use platform 
 
 * **Frontend:** Next.js 15, TypeScript, Tailwind CSS, Shadcn UI
 * **Data fetching and state management:** React Query
-* **Database:** PostgreSQL with Drizzle ORM to store user profiles and plans.
-* **Authentication & Authorization:** Better Auth
+* **Database:** Supabase
+* **Authentication & Authorization:** Supabase Auth
 * **Data validation:** Zod
 * **AI:** OpenAI API (server-side) for plan generation and resource suggestions; structured JSON outputs validated with Zod; prompt templates and minimal guardrails (rate limiting and content filtering).
 * **Error Tracking and Logging:** Sentry

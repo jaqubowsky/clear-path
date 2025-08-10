@@ -23,8 +23,16 @@ This document defines the tech stack choices, folder structure, and naming conve
   - Shadcn UI, Tailwind CSS, Lucide icons
   - Installing new components: `bunx --bun shadcn@latest add <component-name>`
 
-- **Database & Auth**: Supabase (PostgreSQL)
-  - Auth, Storage, Row Level Security (RLS) enforced from the start.
+- **Forms**: React Hook Form + Zod
+  - `react-hook-form` with `@hookform/resolvers/zod` for schema-first validation.
+  - Shadcn UI form primitives/components for consistent UX.
+
+- **Authentication**: Supabase Auth
+  - Centralized auth using Supabase Auth; session helpers exposed in `@/shared/auth`.
+  - Use server actions for sign-in/out and session-sensitive operations.
+
+- **Database**: Supabase (PostgreSQL)
+  - Storage and Row Level Security (RLS) enforced from the start.
   - Client SDK: centralized in a shared package `@repo/supabase` with separate entry points:
     - `@repo/supabase/browser` — browser-safe client using public keys (RLS enforced).
     - `@repo/supabase/server` — factory for server-side usage; accepts cookie/header adapters (no direct `next/headers` import to keep it framework-agnostic).
@@ -39,8 +47,9 @@ This document defines the tech stack choices, folder structure, and naming conve
 - **Data Fetching & State**
   - Server state: React Query (queries and mutations, normalized cache, retries, stale-time, invalidation).
   - Client/UI state: Zustand (lightweight stores; do not duplicate server state).
-  - We do not use Next.js API routes in this app. Actions call Supabase or external services directly from the client (RLS-protected) using SDKs.
-  - Sensitive operations (e.g., OpenAI) must not run on the client. Use Next.js Server Actions or Supabase Edge Functions for a server boundary.
+  - We do not use Next.js API routes. All operations are implemented as Next.js Server Actions, which call Supabase or external services.
+  - Client components consume operations via feature-specific custom hooks (e.g., `useCreateProfile`) that internally use React Query for mutation state and cache invalidation.
+  - Sensitive operations (e.g., OpenAI) must not run on the client.
 
 ---
 
@@ -65,6 +74,17 @@ clear-path/
   package.json
   tech-stack-pref.md
   overview.md
+```
+
+Messages catalog (human-friendly):
+
+```ts
+// src/shared/messages/messages.ts
+export const messages = {
+  genericError: "Something went wrong. Please try again.",
+  planCreateError: "Unable to create your learning plan right now.",
+  profileCreateSuccess: "Profile created successfully!",
+} as const;
 ```
 
 ---
@@ -122,6 +142,7 @@ Notes:
     - Put global React Query client/provider in `src/shared/providers` and query helpers/keys in `src/shared/queries`.
     - Initialize Supabase clients in `src/shared/clients` (browser and server variants).
     - Shared components that are app-specific live in `src/shared/components`. Reusable, cross-app components should be promoted to `@repo/ui`.
+    - For forms, colocate `forms/` within a feature when they contain complex logic or multi-step flows; otherwise keep forms within the feature's `components/`.
 
 Feature directory template:
 
@@ -211,6 +232,59 @@ import { Button } from "@repo/ui/components/button";
 
 ---
 
+### Error Handling & UX
+
+- Strategy
+  - Validate inputs/outputs with Zod at boundaries (forms, actions, queries).
+  - Fail fast inside `actions/`; throw errors so React Query can handle/error states.
+  - Prefer typed error shapes for predictable handling.
+
+- User-facing notifications
+  - Use `sonner` for toasts on success/error.
+  - Keep messages generic; avoid leaking internals (stack traces, SQL, tokens).
+
+- Logging & observability
+  - Capture full error details with Sentry in `actions/` and error boundaries.
+  - Optionally surface Sentry event IDs for support/debugging.
+
+- Minimal pattern
+  - Maintain human-friendly message catalog in `src/shared/messages/messages.ts` and reuse across toasts and error boundaries.
+
+```ts
+// src/shared/errors/error-utils.ts
+import * as Sentry from "@sentry/nextjs";
+import { toast } from "sonner";
+import { messages } from "@/shared/messages/messages";
+
+export function notifyAndLog(error: unknown, messageKey: keyof typeof messages = "genericError") {
+  const eventId = Sentry.captureException(error);
+  toast.error(messages[messageKey]);
+  return { eventId };
+}
+```
+
+```ts
+// src/features/planner/actions/create-learning-plan.ts
+import { supabaseBrowser } from "@repo/supabase/browser";
+import { notifyAndLog } from "@/shared/errors/error-utils";
+
+export async function createLearningPlan(input: { goalId: string; title: string }) {
+  try {
+    const client = supabaseBrowser();
+    const { error } = await client.from("learning_plans").insert({
+      goal_id: input.goalId,
+      title: input.title,
+    });
+    if (error) throw error;
+  } catch (err) {
+    notifyAndLog(err, "Unable to create plan");
+    throw err;
+  }
+}
+```
+
+---
+
 ### Notes & Next Steps
 
 - As we add features (e.g., onboarding, planner), create `src/features/<feature-name>` with kebab-case and co-locate UI, hooks, services, and schemas.
@@ -248,6 +322,47 @@ export function useLearningPlan(goalId: string) {
     queryKey: ["learning-plan", goalId],
     queryFn: () => getLearningPlan({ goalId }),
     staleTime: 5 * 60 * 1000,
+  });
+}
+```
+
+Form integration with React Hook Form and Server Actions via a custom hook:
+
+```tsx
+// src/features/onboarding/components/onboarding-form.tsx
+"use client";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createProfile } from "../actions/create-profile";
+
+const schema = z.object({ name: z.string().min(2), timePerWeek: z.number().min(1) });
+
+export function OnboardingForm() {
+  const form = useForm<z.infer<typeof schema>>({ resolver: zodResolver(schema) });
+  const { mutate: create, isPending } = useCreateProfile();
+
+  return (
+    <form onSubmit={form.handleSubmit((values) => create(values))}>
+      {/* fields here */}
+      <button type="submit" disabled={isPending}>Continue</button>
+    </form>
+  );
+}
+```
+
+```ts
+// src/features/onboarding/queries/use-create-profile.ts
+"use client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createProfile } from "../actions/create-profile"; // server action
+
+export function useCreateProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createProfile,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
   });
 }
 ```
